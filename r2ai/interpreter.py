@@ -144,9 +144,9 @@ class Interpreter:
         self.env["data.vectordb"] = "false"
         self.env["data.hist"] = "false"
         self.env["key.mastodon"] = ""
-        self.env["http.port"] = "8080"
+        self.env["http.port"] = "11434" # port for local/remote Ollama server
         self.env["http.tabby"] = "false"
-        self.env["http.path"] = ""
+        self.env["http.path"] = "http://localhost" # URL to access local/remote server (e.g Ollama)
         self.env["http.verbose"] = "true" # not used yet
         self.env["http.chatctx"] = "false"
         self.env["debug_level"] = os.getenv("R2AI_LOG", "2")
@@ -444,6 +444,7 @@ class Interpreter:
                     max_completion_tokens=maxtokens,
                     temperature=float(self.env["llm.temperature"]),
                     top_p=float(self.env["llm.top_p"]),
+                    api_base=f'{self.env["http.path"]}:{self.env["http.port"]}'
                 )
             elif self.model.startswith("mistral/"):
                 completion = litellm_completion(
