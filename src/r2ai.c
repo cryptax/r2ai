@@ -49,24 +49,24 @@ static void refresh_embeddings (RCore *core) {
 
 static RCoreHelpMessage help_msg_r2ai = {
 	"Usage:", "r2ai", " [-args] [...]",
+	"r2ai", " -a [query]", "Resolve question using auto mode",
 	"r2ai", " -d", "Decompile current function",
 	"r2ai", " -dr", "Decompile current function (+ 1 level of recursivity)",
-	"r2ai", " -a [query]", "Resolve question using auto mode",
 	"r2ai", " -e", "Same as '-e r2ai.'",
 	"r2ai", " -h", "Show this help message",
 	"r2ai", " -i [file] [query]", "read file and ask the llm with the given query",
+	"r2ai", " -L", "show chat logs (See -Lj for json)",
+	"r2ai", " -L-[N]", "delete the last (or N last messages from the chat history)",
 	"r2ai", " -m", "show selected model, list suggested ones, choose one",
 	"r2ai", " -M", "show suggested models for each api",
 	"r2ai", " -n", "suggest a better name for the current function",
 	"r2ai", " -r", "enter the repl",
 	"r2ai", " -Rq ([text])", "refresh and query embeddings (see r2ai.data)",
-	"r2ai", " -L", "show chat logs (See -Lj for json)",
-	"r2ai", " -L-[N]", "delete the last (or N last messages from the chat history)",
 	"r2ai", " -R", "reset the chat conversation context",
 	"r2ai", " -s", "function signature",
-	"r2ai", " -x", "explain current function",
 	"r2ai", " -v", "suggest better variables names and types",
 	"r2ai", " -V[r]", "find vulnerabilities in the decompiled code (-Vr uses -dr)",
+	"r2ai", " -x", "explain current function",	
 	"r2ai", " [arg]", "send a post request to talk to r2ai and print the output",
 	NULL
 };
@@ -508,15 +508,17 @@ static void cmd_r2ai_M (RCore *core) {
 		"r2ai -e api=gemini\n"
 		"-m gemini-1.5-flash\n"
 		"-m gemini-1.0-pro\n"
-		"r2ai -e api=openai\n"
-		"-m gpt-4\n"
-		"-m gpt-3.5-turbo\n"
+		"r2ai -e api=mistral\n"
+		"-m mistral-large-latest\n"
 		"r2ai -e api=ollama\n"
 		"-m llama3.2:1b\n"
 		"-m llama3\n"
 		"-m codegeex4\n"
 		"-m qwen2.5-coder:3b\n"
 		"-m benevolentjoker/nsfwvanessa\n"
+		"r2ai -e api=openai\n"
+		"-m gpt-4\n"
+		"-m gpt-3.5-turbo\n"
 		"r2ai -e api=openrouter\n"
 		"-m deepseek/deepseek-r1-zero:free\n");
 }
