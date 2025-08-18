@@ -256,3 +256,17 @@ r2ai_messages_add_tool_call(msgs, "r2cmd", "{\"command\":\"pdf@main\"}", "tool-1
 // Free all resources when done
 r2ai_messages_free(msgs);
 ```
+
+## lm-studio
+
+Install [LM Studio](https://lmstudio.ai/). On a server, LM Studio must be run as a normal user (not root) + install *FUSE*.
+
+Then, download your preferred model(s). For example to install GPT-OSS,  follow this [cookbook](https://cookbook.openai.com/articles/gpt-oss/run-locally-lmstudio).
+
+When you launch LM Studio, go to developer options, Settings, and select server **port** (1234 by default) and check whether you need "serve on a local network" or not (accessible on localhost only, or on a local network).
+
+In r2ai, as lm-studio uses an OpenAI-like API, configure:
+
+- `r2ai -e api=openai`
+- `r2ai -e baseurl=http://LM-STUDIO-IP:PORT`
+- `r2ai -e model=?` to list available models
