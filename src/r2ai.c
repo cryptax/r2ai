@@ -72,51 +72,33 @@ static RCoreHelpMessage help_msg_r2ai = {
 	NULL
 };
 
-#if 0
-// TODO: use it for r2ai.data.reason
-static char *vdb_from(RCore *core, const char *prompt) {
-	char *q = r_str_newf (
-		"# Instruction\n"
-		"Deconstruct the prompt and respond ONLY with the list of multiple prompts necessary to resolve it\n"
-		"## Prompt\n%s\n",
-		prompt);
-	char *error = NULL;
-	R2AIArgs vdb_args = {
-		.input = q,
-		.error = &error,
-		.dorag = false
-	};
-	char *r = r2ai (core, vdb_args);
-	if (error) {
-		free (q);
-		free (r);
-		return NULL;
+/* Return a malloc'd API key read from the environment or from ~/.r2ai.<provider>-key
+ * Caller is responsible for freeing the returned string (or NULL if not found). */
+static char *r2ai_get_api_key(RCore *core, const char *provider) {
+	(void)core;
+	char *api_key = NULL;
+	char *api_key_env = r_str_newf ("%s_API_KEY", provider);
+	r_str_case (api_key_env, true);
+	char *s = r_sys_getenv (api_key_env);
+	free (api_key_env);
+	if (R_STR_ISNOTEMPTY (s)) {
+		api_key = s;
+	} else {
+		free (s);
+		char *api_key_filename = r_str_newf ("~/.r2ai.%s-key", provider);
+		char *absolute_apikey = r_file_abspath (api_key_filename);
+		if (r_file_exists (absolute_apikey)) {
+			api_key = r_file_slurp (absolute_apikey, NULL);
+			if (api_key) {
+				r_str_trim (api_key);
+			}
+		}
+		free (api_key_filename);
+		free (absolute_apikey);
 	}
-	return r;
+	return api_key;
 }
 
-static char *rag(RCore *core, const char *content, const char *prompt) {
-	char *q = r_str_newf (
-		"# Instruction\n"
-		"Filter the statements. Respond ONLY the subset of statements matching the prompt. Do not introduce the output. Do not use markdown\n"
-		"## Prompt\n%s\n"
-		"## Statements\n%s\n",
-		prompt, content);
-	char *error = NULL;
-	R2AIArgs rag_args = {
-		.input = q,
-		.error = &error,
-		.dorag = false
-	};
-	char *r = r2ai (core, rag_args);
-	if (error) {
-		free (q);
-		free (r);
-		return NULL;
-	}
-	return r;
-}
-#endif
 
 R_IPI R2AI_ChatResponse *r2ai_llmcall(RCore *core, R2AIArgs args) {
 	R2AI_ChatResponse *res = NULL;
@@ -125,7 +107,8 @@ R_IPI R2AI_ChatResponse *r2ai_llmcall(RCore *core, R2AIArgs args) {
 		provider = "gemini";
 	}
 	if (!args.model) {
-		args.model = strdup (r_config_get (core->config, "r2ai.model"));
+		const char *config_model = r_config_get (core->config, "r2ai.model");
+		args.model = strdup (config_model? config_model: "");
 	}
 	args.provider = strdup (provider);
 
@@ -133,39 +116,26 @@ R_IPI R2AI_ChatResponse *r2ai_llmcall(RCore *core, R2AIArgs args) {
 		args.max_tokens = r_config_get_i (core->config, "r2ai.max_tokens");
 	}
 	if (!args.temperature) {
-		args.temperature = atof (r_config_get (core->config, "r2ai.temperature"));
+		const char *configtemp = r_config_get (core->config, "r2ai.temperature");
+		args.temperature = configtemp? atof (configtemp): 0;
 	}
 
-	const char *api_key_env = r_str_newf ("%s_API_KEY", provider);
-	char *api_key_env_copy = strdup (api_key_env);
-
-	r_str_case (api_key_env_copy, true);
-	const char *api_key_filename = r_str_newf ("~/.r2ai.%s-key", provider);
 	char *api_key = NULL;
-
-	char *s = r_sys_getenv (api_key_env_copy);
-	if (R_STR_ISNOTEMPTY (s)) {
-		api_key = s;
-	} else {
-		free (s);
-		char *absolute_apikey = r_file_abspath (api_key_filename);
-		if (r_file_exists (absolute_apikey)) {
-			api_key = r_file_slurp (absolute_apikey, NULL);
+	if (strcmp (provider, "ollama") && strcmp (provider, "openapi")) {
+		api_key = r2ai_get_api_key (core, provider);
+		if (api_key) {
+			args.api_key = api_key;
 		}
-		free (absolute_apikey);
-	}
-	free (api_key_env_copy);
-
-	if (api_key) {
-		r_str_trim (api_key);
-		args.api_key = api_key;
 	}
 	// Make sure we have an API key before proceeding
 	if (strcmp (provider, "ollama")) {
 		if (R_STR_ISEMPTY (args.api_key)) {
+			char *Provider = strdup (provider);
+			r_str_case (Provider, true);
 			R_LOG_ERROR ("No API key found for %s provider. Please set one with: r2ai "
-				    "-e %s.api_key=YOUR_KEY",
-				provider, provider);
+				    "%s_API_KEY=YOUR_KEY",
+				provider, Provider);
+			free (Provider);
 			return NULL;
 		}
 	}
@@ -234,7 +204,7 @@ R_IPI R2AI_ChatResponse *r2ai_llmcall(RCore *core, R2AIArgs args) {
 	return res;
 }
 
-R_IPI char *r2ai(RCore *core, R2AIArgs args) {
+R_API char *r2ai(RCore *core, R2AIArgs args) {
 	if (R_STR_ISEMPTY (args.input) && !args.messages) {
 		if (args.error) {
 			*args.error = r_str_newf ("Usage: r2ai [-h] [prompt]");
@@ -735,7 +705,8 @@ R_IPI const char *r2ai_get_provider_url(RCore *core, const char *provider) {
 				return r_str_newf ("%s/v1", host);
 			}
 			return r_str_newf ("http://%s/v1", host);
-		} else return "https://api.openai.com/v1";
+		}
+		return "https://api.openai.com/v1";
 	} else if (strcmp (provider, "gemini") == 0) {
 		return "https://generativelanguage.googleapis.com/v1beta/openai";
 	} else if (strcmp (provider, "ollama") == 0) {
@@ -775,7 +746,6 @@ static RList *fetch_available_models(RCore *core, const char *provider) {
 	if (strcmp (provider, "ollama") != 0) {
 		models_url = r_str_newf ("%s/models", purl);
 	} else {
-
 		models_url = r_str_newf ("%s/tags", purl);
 	}
 	if (!models_url) {
@@ -784,27 +754,9 @@ static RList *fetch_available_models(RCore *core, const char *provider) {
 
 	// Get API key for authentication (except for ollama and openapi)
 	char *api_key = NULL;
-	if (strcmp (provider, "ollama") != 0 && strcmp (provider, "openapi") != 0) {
-		const char *api_key_env = r_str_newf ("%s_API_KEY", provider);
-		char *api_key_env_copy = strdup (api_key_env);
-		r_str_case (api_key_env_copy, true);
-
-		char *s = r_sys_getenv (api_key_env_copy);
-		if (R_STR_ISNOTEMPTY (s)) {
-			api_key = s;
-		} else {
-			free (s);
-			const char *api_key_filename = r_str_newf ("~/.r2ai.%s-key", provider);
-			char *absolute_apikey = r_file_abspath (api_key_filename);
-			if (r_file_exists (absolute_apikey)) {
-				api_key = r_file_slurp (absolute_apikey, NULL);
-				if (api_key) {
-					r_str_trim (api_key);
-				}
-			}
-			free (absolute_apikey);
-		}
-		free (api_key_env_copy);
+	if (strcmp (provider, "ollama") && strcmp (provider, "openapi")) {
+		// Consolidated helper to fetch the API key from env or file
+		api_key = r2ai_get_api_key (core, provider);
 	}
 
 	int code = 0;
@@ -955,18 +907,31 @@ static int r2ai_init(void *user, const char *input) {
 
 	r_config_lock (core->config, false);
 	r_config_set_cb (core->config, "r2ai.api", "openai", &cb_r2ai_api);
+	r_config_desc (core->config, "r2ai.api", "LLM provider to use (openai, gemini, anthropic, ollama, ...)");
 	r_config_set_cb (core->config, "r2ai.model", "gpt-5-mini", &cb_r2ai_model);
+	r_config_desc (core->config, "r2ai.model", "Model identifier for the selected provider (e.g. gpt-5-mini)");
 	r_config_set (core->config, "r2ai.baseurl", "");
+	r_config_desc (core->config, "r2ai.baseurl", "Base URL for provider API (overrides default endpoints)");
 	r_config_set_i (core->config, "r2ai.max_tokens", 4096); // max output tokens, or max total tokens
+	r_config_desc (core->config, "r2ai.max_tokens", "Maximum tokens for LLM responses (output/total depending on provider)");
 	r_config_set_i (core->config, "r2ai.thinking_tokens", 0);
+	r_config_desc (core->config, "r2ai.thinking_tokens", "Number of tokens reserved for internal thinking/context messages");
 	r_config_set (core->config, "r2ai.temperature", "0.01");
+	r_config_desc (core->config, "r2ai.temperature", "Sampling temperature for LLM output (0 = deterministic)");
 	r_config_set (core->config, "r2ai.cmds", "pdc");
+	r_config_desc (core->config, "r2ai.cmds", "Default command sequence used by automation (e.g. 'pdc')");
 	r_config_set (core->config, "r2ai.lang", "C");
+	r_config_desc (core->config, "r2ai.lang", "Programming language hint used in prompts (e.g. C, C++, Rust)");
 	r_config_set_b (core->config, "r2ai.data", false);
+	r_config_desc (core->config, "r2ai.data", "Enable local data/embeddings for query context retrieval");
 	r_config_set_b (core->config, "r2ai.data.reason", false);
+	r_config_desc (core->config, "r2ai.data.reason", "Include reasoning/explanations from local data when building context");
 	r_config_set (core->config, "r2ai.data.path", "/tmp/embeds");
+	r_config_desc (core->config, "r2ai.data.path", "Path to local embeddings/text files used for context (one .txt per document)");
 	r_config_set_i (core->config, "r2ai.data.nth", 10);
+	r_config_desc (core->config, "r2ai.data.nth", "Number of top-matching documents to include from local data for context");
 	r_config_set (core->config, "r2ai.hlang", "english");
+	r_config_desc (core->config, "r2ai.hlang", "Human language for prompts/messages (e.g. english)");
 	r_config_set (
 		core->config, "r2ai.system",
 		"You are a reverse engineer. The user is reversing a binary, using "
@@ -979,21 +944,30 @@ static int r2ai_init(void *user, const char *input) {
 		"possible, use better variable names, take function arguments and "
 		"strings from comments like 'string:'");
 	r_config_set_b (core->config, "r2ai.stream", false);
+	r_config_desc (core->config, "r2ai.stream", "Enable streaming responses from the LLM (true/false)");
 	r_config_set_i (core->config, "r2ai.auto.max_runs", 50);
+	r_config_desc (core->config, "r2ai.auto.max_runs", "Maximum number of automated steps/runs in auto mode");
 	r_config_set_b (core->config, "r2ai.auto.hide_tool_output", false);
+	r_config_desc (core->config, "r2ai.auto.hide_tool_output", "Hide tool output when running automated actions");
 	r_config_set (core->config, "r2ai.auto.init_commands", "aaa;iI;afl");
+	r_config_desc (core->config, "r2ai.auto.init_commands", "Initial commands executed when auto mode starts (semicolon separated)");
 	r_config_set_b (core->config, "r2ai.auto.yolo", false);
+	r_config_desc (core->config, "r2ai.auto.yolo", "Execute potentially dangerous commands in auto mode without asking");
 	r_config_set_b (core->config, "r2ai.auto.reset_on_query", false);
+	r_config_desc (core->config, "r2ai.auto.reset_on_query", "Reset auto-mode conversation state on new user queries");
 	r_config_set_b (core->config, "r2ai.chat.show_cost", true);
+	r_config_desc (core->config, "r2ai.chat.show_cost", "Display estimated API cost for chat interactions");
 
-	// Configure HTTP timeout in seconds
 	r_config_set_i (core->config, "r2ai.http.timeout", 120);
-	// Configure HTTP rate limiting and retry parameters
+	r_config_desc (core->config, "r2ai.http.timeout", "HTTP client timeout (seconds) for provider API calls");
 	r_config_set_i (core->config, "r2ai.http.max_retries", 10);
+	r_config_desc (core->config, "r2ai.http.max_retries", "Maximum number of HTTP retries for failed requests");
 	r_config_set_i (core->config, "r2ai.http.max_backoff", 30);
-	// Configure HTTP backend and options
+	r_config_desc (core->config, "r2ai.http.max_backoff", "Maximum backoff time (seconds) between HTTP retries");
 	r_config_set (core->config, "r2ai.http.backend", "auto"); // Options: auto, libcurl, socket, system
+	r_config_desc (core->config, "r2ai.http.backend", "HTTP backend to use (auto, libcurl, socket, system)");
 	r_config_set_b (core->config, "r2ai.http.use_files", false);
+	r_config_desc (core->config, "r2ai.http.use_files", "Use temporary files to pass HTTP request/response payloads (true/false)");
 	r_config_lock (core->config, true);
 	return true;
 }
@@ -1058,7 +1032,7 @@ RCorePlugin r_core_plugin_r2ai_client = {
 		.name = "r2ai",
 		.desc = "r2ai plugin in plain C",
 		.author = "pancake",
-		.version = "1.0.0",
+		.version = "1.1.1",
 		.license = "MIT",
 	},
 	.init = r2ai_init,
